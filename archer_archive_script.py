@@ -12,6 +12,7 @@ make tar.gz of the whole project folder
 Find the matching project in DNANexus 
 Upload it to DNA Nexus along with the locations file and delete from the genomics server
 add archer project id (e.g. 4767) to the list of archived projects
+#TODO consider possible edge case for archer project ids that are >4 or <4 characters. ?possible these would not be handled well by this section of th script
 
 This script was developed by the Viapath Genome Informatics team
 July 2022
@@ -29,6 +30,29 @@ class ArcherArchive():
 		self.logfile_name = self.script_logfile_path + "/" + self.now + "archivelog.txt"
 		# Open the script logfile for logging throughout script.
 		self.script_logfile = open(self.logfile_name, 'a')
+	
+	def set_up_ssh_known_hosts(self):
+		"""
+		Need to add the archer server host into the known hosts otherwise any ssh command will return an interactive prompt that the authenticity of the host cannot be established
+		Therefore we can run a command which tests if the server is in the known hosts list and if not it's added using ssh-keygen and ssh-keyscan
+		This is run once each time the docker image is run.
+		Returns True if host was added
+		"""
+		# make ~./ssh and ~/.ssh/known_hosts
+		# if the host is not present in this file
+		# use ssh-keyscan to get the key and add it in.
+		# repeat the ssh-keygen command - this should now return a string which includes "# Host grpvgaa01.viapath.local found" - stdout can be tested for this
+		# NB expect some outputs in stderr from the ssh-keyscan command at this stage
+		cmd="mkdir -p ~/.ssh; touch ~./ssh/known_hosts;\
+			if [ -z $(ssh-keygen -F grpvgaa01.viapath.local) ]; then \
+				ssh-keyscan -H grpvgaa01.viapath.local >> ~/.ssh/known_hosts; fi; ssh-keygen -F grpvgaa01.viapath.local"
+		out, err = self.execute_subprocess_command(cmd)
+		if self.success_in_stdout(out, "Host grpvgaa01.viapath.local found"):
+			self.logger("host added to known hosts ok", "SSH set up")
+			return True
+		else:
+			self.logger("host NOT added to known hosts", "SSH set up")
+			return False
 
 	def list_archer_projects(self):
 		"""
@@ -48,7 +72,9 @@ class ArcherArchive():
 					config.path_to_analysis_folder) 
 		out,err = self.execute_subprocess_command(cmd)
 		# for each item in the out (list of items in the /var/www/analysis folder) yeild the name if length=4 
+		self.logger("command run to list projects: %s" % (cmd), "Archer archive")
 		for folder_name in out.split("\n"):
+			self.logger("checking folder %s" % (folder_name), "Archer archive")
 			if len(folder_name) == 4:
 				self.logger("identified project %s" % (folder_name), "Archer archive")
 				yield folder_name
@@ -60,8 +86,9 @@ class ArcherArchive():
 			Check if project is in the list of previously archived projects (config.path_to_archived_project_ids)
 			input: Archer project id (####)
 			output: True/False
+			#TODO consider possible outcomes if eg prev archived run 123 on list, and run 1234 identified. Linked to possibility that archer project ID is not 4 characters (which would cause issues elsewhere)
 			"""
-			archived_runs = open(config.path_to_archived_project_ids)
+			archived_runs = open(config.path_to_archived_project_ids) #TODO consider alternate way of getting this file. ?could save the fastq locations text files?
 			archived_runs_list = archived_runs.read().splitlines()
 			# check if project is on list of previously archived projects. Return True if it is, False if not
 			if archer_project_ID in archived_runs_list:
@@ -85,31 +112,29 @@ class ArcherArchive():
 		"""		
 		if config.testing:
 			cmd = "archer_pw=$(<%s); \
-				sshpass -p $archer_pw ssh s_archerupload@grpvgaa01.viapath.local ls %s/%s" % (
+				sshpass -p $archer_pw ssh s_archerupload@grpvgaa01.viapath.local ls %s" % (
 					config.path_to_archerdx_pw, 
-					config.path_to_analysis_test_folder,
-					archer_project_ID)
+					os.path.join(config.path_to_analysis_test_folder,archer_project_ID))
 		else:
 			cmd = "archer_pw=$(<%s); \
-				sshpass -p $archer_pw ssh s_archerupload@grpvgaa01.viapath.local ls %s/%s" % (
+				sshpass -p $archer_pw ssh s_archerupload@grpvgaa01.viapath.local ls %s" % (
 					config.path_to_archerdx_pw, 
-					config.path_to_analysis_folder,
-					archer_project_ID)
+					os.path.join(config.path_to_analysis_folder,archer_project_ID))
 		out,err = self.execute_subprocess_command(cmd)
 		# look through list of contents for file "archer_project_ID.tar.gz"
 		archer_tar = archer_project_ID + ".tar.gz"
 		for file in out.split("\n"):
 			if file == archer_tar:
-				# if the .tar.gz file is present look through the list to find a file that starts with "ADX"
+				# if the .tar.gz file is present look through the list again to find a file that starts with "ADX"
 				for file in out.split("\n"):
 					if file.startswith("ADX"):
 						project_adx = file.split("_",1)[0]
 						self.logger("Project %s %s has been archived in Archer software. Can be backed up to DNA Nexus." % (archer_project_ID,project_adx), "Archer archive")
-						return True,project_adx
+						return project_adx
 			# if no .tar.gz file present file is not ready for archiving
 			else:
 				self.logger("Project %s not yet archived in Archer software. Move on to next project" % (archer_project_ID), "Archer archive")
-				return False,"none"
+				return None
 
 	def list_archer_project_files(self,archer_project_ID):
 		"""
@@ -118,30 +143,28 @@ class ArcherArchive():
 		Returns True or False and the path of the fastq locations file that is created
 		"""
 		# echo $? returns exit status of last command, non zero means it's failed
-		fastq_loc_file = "%s/%s_fastq_loc.txt" % (config.fastq_locations_folder,archer_project_ID)
+		fastq_loc_file = "%s_fastq_loc.txt" % (os.path.join(config.fastq_locations_folder,archer_project_ID))
 		if config.testing: #point to analysis_test_folder
 			cmd = "archer_pw=$(<%s); \
-				sshpass -p $archer_pw ssh s_archerupload@grpvgaa01.viapath.local ls -l %s/%s > %s; echo $?" % (
+				sshpass -p $archer_pw ssh s_archerupload@grpvgaa01.viapath.local ls -l %s > %s; echo $?" % (
 					config.path_to_archerdx_pw, 
-					config.path_to_analysis_test_folder,
-					archer_project_ID,
+					os.path.join(config.path_to_analysis_test_folder,archer_project_ID),
 					fastq_loc_file)
 		else:
 			cmd = "archer_pw=$(<%s); \
-				sshpass -p $archer_pw ssh s_archerupload@grpvgaa01.viapath.local ls -l %s/%s > %s; echo $?" % (
-					config.path_to_archerdx_pw, 
-					config.path_to_analysis_folder,
-					archer_project_ID,
+				sshpass -p $archer_pw ssh s_archerupload@grpvgaa01.viapath.local ls -l %s > %s; echo $?" % (
+					config.path_to_archerdx_pw,
+					os.path.join(config.path_to_analysis_folder,archer_project_ID),
 					fastq_loc_file)
 		out,err = self.execute_subprocess_command(cmd)
 		# check for errors in the stdout
 		if self.success_in_stdout(out.rstrip(), "0"):
 			self.logger("Fastq locations file for project %s generated." % (archer_project_ID), "Archer archive")
-			return True,fastq_loc_file
+			return fastq_loc_file
 		else:
 			# TODO set up Rapid 7 alert
 			self.logger("ERROR: Failed to generate fastq locations file for project %s." % (archer_project_ID), "Archer archive")
-			return False,fastq_loc_file
+			return None
 
 	def copy_archer_project(self,archer_project_ID):
 		"""
@@ -198,11 +221,11 @@ class ArcherArchive():
 		# assess stdout+stderr - if successful tar does not return any output
 		if len(out) ==0:
 			self.logger("Tar of archer project %s generated successfully" % (archer_project_ID),"Archer archive")
-			return True,tarfile_name
+			return tarfile_name
 		else:
 			# TODO set up Rapid 7 alert
 			self.logger("ERROR: failed to generate tar of archer project %s. n\Error message: %s. \nProject will not be archived." % (archer_project_ID,out),"Archer archive")
-			return False,tarfile_name
+			return None
 
 	def find_DNAnexus_project(self,archer_project_ID,project_adx):
 		"""
@@ -220,60 +243,60 @@ class ArcherArchive():
 		if len(matching_projects) != 2:
 			# TODO set up Rapid 7 alert
 			self.logger("ALERT: Unable to identify a single DNAnexus project matching %s. Unable to backup Archer project %s" % (project_adx,archer_project_ID), "Archer list projects")
-			return "fail","fail"
+			return None,None
 		else:
 			# extract the projectid and projectname for use later
 			projectid,colon,projectname,access = matching_projects[0].split(" ")
 			self.logger("DNAnexus project identified matching %s (Archer project %s). Project name: %s." % (project_adx,archer_project_ID,projectname),"Archer list projects")
 			return projectid,projectname
 
-	def upload_to_dnanexus(self,file,dnanexus_projectname):
+	def upload_to_dnanexus(self,file_list,dnanexus_projectname):
 		"""
 		can be called twice- to upload tar.gz and fastq_loc file
 		takes a file and the DNAnexus project as input
 		returns True if upload successfil
 		"""
+		# read list of files to upload into a string to include in the upload command
+		list_of_files = " ".join(file_list)
 		# generate command to upload file to DNAnexus project
 		cmd = "%s --auth-token %s --project %s %s" % (
 			config.path_to_dx_upload_agent,
 			config.Nexus_API_Key,
 			dnanexus_projectname,
-			file)
+			list_of_files) #TODO need to get it to read in the file list correctly
 		out,err = self.execute_subprocess_command(cmd)
-		self.logger("dnanexus upload agent command: %s\nout: %s" % (cmd,out),"Archer archive")
+		self.logger("dnanexus upload agent command: %s\nout: %s\n%s" % (cmd,out,err),"Archer archive")
 		# check output of this command
 		if out.startswith("file-"):
 		#if self.success_in_stdout(out,"file*"):
-			self.logger("file %s successfully uploaded to DNAnexus project %s" % (file,dnanexus_projectname),"Archer archive")
+			self.logger("files %s successfully uploaded to DNAnexus project %s" % (list_of_files,dnanexus_projectname),"Archer archive")
 			return True
 		else:
 			# TODO set up Rapid 7 alert
-			self.logger("ERROR: failed to upload file %s to DNAnexus project %s" % (file,dnanexus_projectname),"Archer archive")
+			self.logger("ERROR: failed to upload file %s to DNAnexus project %s" % (list_of_files,dnanexus_projectname),"Archer archive")
 			return False
 
 	def cleanup_archer_project_folder(self,archer_project_ID):
 		"""
-		empty project folder
+		empty project folder (but leave folder there, i.e. do not delete the folder)
 		Once project is archived in DNAnexus the copy on the archer platform can be deleted.
 		"""
-		# ssh on to archer platform using ssh pass and empty the project folder
+		# ssh on to archer platform using ssh pass and empty the project folder.
 		if config.testing:
 			cmd = "archer_pw=$(<%s); \
-				sshpass -p $archer_pw ssh s_archerupload@grpvgaa01.viapath.local rm -r %s/%s/*" % (
+				sshpass -p $archer_pw ssh s_archerupload@grpvgaa01.viapath.local rm -r %s/*; echo $?" % (
 					config.path_to_archerdx_pw, 
-					config.path_to_analysis_test_folder,
-					archer_project_ID)
+					os.path.join(config.path_to_analysis_test_folder,archer_project_ID))
 		else:
 			cmd = "archer_pw=$(<%s); \
-				sshpass -p $archer_pw ssh s_archerupload@grpvgaa01.viapath.local rm -r %s/%s/*" % (
+				sshpass -p $archer_pw ssh s_archerupload@grpvgaa01.viapath.local rm -r %s/*; echo $?" % (
 					config.path_to_archerdx_pw, 
-					config.path_to_analysis_folder,
-					archer_project_ID) 
+					os.path.join(config.path_to_analysis_folder,archer_project_ID)) 
+		self.logger("command to cleanup project on archer server: %s" %(cmd), "Archer archive")
 		out,err = self.execute_subprocess_command(cmd)
-		print(out)
 		self.logger("clean up archer project cmd: %s\nout: %s" % (cmd,out),"Archer archive")
 		# check for success in stdout
-		if len(out) ==0:
+		if self.success_in_stdout(out,"0"):
 			self.logger("Archer project folder %s emptied." % (archer_project_ID),"Archer archive")
 			return True
 		else:
@@ -287,15 +310,20 @@ class ArcherArchive():
 		uses the archer project name ADX# to identify the fastq files
 		"""
 		# ssh on to archer platform using ssh pass and empty the project folder
-		cmd = "archer_pw=$(<%s); \
-			sshpass -p $archer_pw ssh s_archerupload@grpvgaa01.viapath.local rm %s/picked_up_files/%s*" % (
+		if config.testing:
+			cmd = "archer_pw=$(<%s); \
+				sshpass -p $archer_pw ssh s_archerupload@grpvgaa01.viapath.local rm %s*.fastq.gz; echo $?" % ( #TODO add path to config then use this here
 				config.path_to_archerdx_pw, 
-				config.path_to_watch_folder,
-				project_adx) 
+				os.path.join(config.path_to_picked_up_test_files,project_adx)) 
+		else:
+			cmd = "archer_pw=$(<%s); \
+				sshpass -p $archer_pw ssh s_archerupload@grpvgaa01.viapath.local rm %s*.fastq.gz; echo $?" % ( #TODO add path to config then use this here
+				config.path_to_archerdx_pw, 
+				os.path.join(config.path_to_picked_up_files,project_adx)) 
+		self.logger("command to cleanup fastq files: %s" % (cmd), "Archer archive")
 		out,err = self.execute_subprocess_command(cmd)
 		# check for success in stdout
-		#if self.success_in_stdout(out,"0"):
-		if len(out) ==0:
+		if self.success_in_stdout(out,"0"):
 			self.logger("FASTQs for archer project %s deleted from picked_up_files folder." % (project_adx),"Archer archive")
 			return True
 		else:
@@ -317,23 +345,23 @@ class ArcherArchive():
 
 	def cleanup_genomics_server(self,archer_project_ID):
 		"""
-		If the files have been transferred to the server ok we can delete the downloaded files.
-		Inputs:		project - a tuple (projectid,projectname) generated by list_projects()
+		If the files have been transferred to the server ok we can delete the project folder and tar.
+		Do not delete the fastq_locations file, to return the full record of 
+		Inputs:		archer_project_ID (four digit ID)
 		Outputs:	Returns True if all files deleted successfully
 		"""
 		# downloaded fastq files location on genomics server
 		path_to_project_folder = os.path.join(config.copy_location,"%s" % (archer_project_ID))
 		path_to_project_tar = os.path.join(config.copy_location,"%s.tar.gz" % (archer_project_ID))
-		path_to_fastq_loc_list = os.path.join(config.fastq_locations_folder,"%s_fastq_loc.txt" % (archer_project_ID))
 		# command to delete the downloaded fastq files
-		cmd = "rm -r %s;rm %s;rm %s; echo $?" % (path_to_project_folder,path_to_project_tar,path_to_fastq_loc_list)
+		cmd = "rm -r %s;rm %s; echo $?" % (path_to_project_folder,path_to_project_tar)
 		out, err = self.execute_subprocess_command(cmd)
 		if self.success_in_stdout(out, "0"):
-			self.logger("Successfully deleted copy of project folder %s, tarfile %s.tar.gz and fastq locations file from genomics server" % (project,project), "Archer Archive")
+			self.logger("Successfully deleted copy of project folder %s and tarfile %s.tar.gz from genomics server" % (archer_project_ID,archer_project_ID), "Archer Archive")
 			return True
 		else:
 			# TODO set Rapid7 alert:
-			self.logger("WARNING: project folder %s, tarfile %s.tar.gz and fastq locations file not deleted from genomics server" % (project,project), "Archer Archive")
+			self.logger("WARNING: project folder %s and tarfile %s.tar.gz not deleted from genomics server" % (archer_project_ID,archer_project_ID), "Archer Archive")
 			return False
 
 	def success_in_stdout(self,stdout, expected_txt=False):
@@ -383,37 +411,35 @@ class ArcherArchive():
 		"""
 		Calls all other functions
 		"""
-		# list projects on archer platform by archer project id (####)
-		for project in self.list_archer_projects():
-			# check if the project is on the previously archived list
-			print(project)
-			if not self.check_previously_archived(project):
-				# check if project archived on archer, return project name (ADX##) if so
-				archived_on_archer,adx_project_name = self.check_project_archived(project)
-				print(archived_on_archer)
-				if archived_on_archer:
-					print("project to archive %s %s" % (project,adx_project_name))
-					# generate file listing locations of files in the archer project folder
-					list_created,list_filename = self.list_archer_project_files(project)
-					if list_created:
-						print("files list created for %s" % (project))
-						# rsync archer project folder to genomics server
-						if self.copy_archer_project(project):
-							# tar the archer project folder
-							tar_created,tar_name = self.create_project_tar(project)
-							if tar_created:
-								#look for the DNAnexus project
-								projectID,projectname = self.find_DNAnexus_project(project,adx_project_name)
-								print(projectID)
-								# if no unique project found projectid and projectname will be "fail"
-								if len(projectID) > 4:
-									print(projectname)
-									# upload tar.gz to DNAnexus
-									if self.upload_to_dnanexus(tar_name,projectname):
-										print(tar_name)
-										# upload fastq_loc file to DNAnexus
-										if self.upload_to_dnanexus(list_filename,projectname):
-											print(list_filename)
+		# set up ssh hosts
+		if self.set_up_ssh_known_hosts():
+			# list projects on archer platform by archer project id (####)
+			for project in self.list_archer_projects():
+				# check if the project is on the previously archived list
+				if not self.check_previously_archived(project):
+					# check if project archived on archer, return project name (ADX##) if so
+					adx_project_name = self.check_project_archived(project)
+					if adx_project_name != None:
+						# generate file listing locations of files in the archer project folder
+						list_filename = self.list_archer_project_files(project) 
+						if list_filename != None:
+							8# add list file name (with path) to a list of files to be uploaded to DNAnexus
+							files_to_upload = []
+							files_to_upload.append(list_filename)
+							# rsync archer project folder to genomics server
+							if self.copy_archer_project(project):
+								# tar the archer project folder
+								tar_name = self.create_project_tar(project)
+								if tar_name != None:
+									# add tar name (with path) to a list of files to be uploaded to DNAnexus
+									tar_path = os.path.join(config.copy_location,tar_name)
+									files_to_upload.append(tar_path)
+									# look for the DNAnexus project
+									projectID,projectname = self.find_DNAnexus_project(project,adx_project_name)
+									# if no unique project found projectid and projectname will be None
+									if projectID != None:
+										# upload tar.gz and fastq locations file to DNAnexus
+										if self.upload_to_dnanexus(files_to_upload,projectname):
 											#clean up archer platform
 											if self.cleanup_archer_project_folder(project) and self.cleanup_archer_fastqs(adx_project_name):
 												#add archer project ID to archived project list
