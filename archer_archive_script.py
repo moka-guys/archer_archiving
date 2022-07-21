@@ -47,6 +47,7 @@ class ArcherArchive():
 			if [ -z $(ssh-keygen -F grpvgaa01.viapath.local) ]; then \
 				ssh-keyscan -H grpvgaa01.viapath.local >> ~/.ssh/known_hosts; fi; ssh-keygen -F grpvgaa01.viapath.local"
 		out, err = self.execute_subprocess_command(cmd)
+
 		if self.success_in_stdout(out, "Host grpvgaa01.viapath.local found"):
 			self.logger("host added to known hosts ok", "SSH set up")
 			return True
@@ -56,7 +57,7 @@ class ArcherArchive():
 
 	def list_archer_projects(self):
 		"""
-		Function which lists all projects in /var/www/analysis on the Archer platform (when config.testing=True it looks in /var/www/analysis/test1 instead)
+		List all projects in /var/www/analysis on the Archer platform (when config.testing=True it looks in /var/www/analysis/test1 instead)
 		Yields project ids (format 4 digits e.g.4690)
 		"""
 		# ssh on to archer platform using ssh pass and list the contents of /var/www/analysis (/var/www/analysis/test1 when testing)
@@ -71,8 +72,8 @@ class ArcherArchive():
 					config.path_to_archerdx_pw, 
 					config.path_to_analysis_folder) 
 		out,err = self.execute_subprocess_command(cmd)
-		# for each item in the out (list of items in the /var/www/analysis folder) yeild the name if length=4 
 		self.logger("command run to list projects: %s" % (cmd), "Archer archive")
+		# for each item in the out (list of items in the /var/www/analysis folder) yeild the name if length=4 
 		for folder_name in out.split("\n"):
 			self.logger("checking folder %s" % (folder_name), "Archer archive")
 			if len(folder_name) == 4:
@@ -88,7 +89,7 @@ class ArcherArchive():
 			output: True/False
 			#TODO consider possible outcomes if eg prev archived run 123 on list, and run 1234 identified. Linked to possibility that archer project ID is not 4 characters (which would cause issues elsewhere)
 			"""
-			archived_runs = open(config.path_to_archived_project_ids) #TODO consider alternate way of getting this file. ?could save the fastq locations text files?
+			archived_runs = open(config.path_to_archived_project_ids)
 			archived_runs_list = archived_runs.read().splitlines()
 			# check if project is on list of previously archived projects. Return True if it is, False if not
 			if archer_project_ID in archived_runs_list:
@@ -104,7 +105,7 @@ class ArcherArchive():
 		looks in the project folder in the archer server and check for a .tar.gz file
 		if that's present, the project has been archived in the Archer platform and the archive can be transferred to DNA Nexus
 			-then looks back at the contents of the project folder to find the ADX project name (ADX###)
-			 TODO if .tar.gz file present but no files matching ADX# identified the script will error
+			#TODO future development: if .tar.gz file present but no files matching ADX# identified the script will error
 			projects should have ADX in fastq file names etc because this is also used by the genomics_server_download archer_script.py
 			-return True and the adx project name (ADX###)
 		if not, logs that the project isn't ready for archiving
@@ -234,7 +235,8 @@ class ArcherArchive():
 		If no matching projects, or greater than 1 project matches will return error- send to rapid 7
 		"""
 		# search DNAnexus for project matching project_adx (ADX###)
-		cmd = config.source_command+";dx find projects --name='*%s*' --auth-token %s" % (project_adx,config.Nexus_API_Key)
+		#cmd = config.source_command+";dx find projects --name='*%s*' --auth-token %s" % (project_adx,config.Nexus_API_Key)
+		cmd = "dx find projects --name='*%s*' --auth-token %s" % (project_adx,config.Nexus_API_Key)
 		out,err = self.execute_subprocess_command(cmd)
 		self.logger("find_DNAnexus_project() cmd: %s" % (cmd),"Archer archive")
 		# count number of projects returned. If unable to identify a single matching project return error
@@ -307,29 +309,50 @@ class ArcherArchive():
 	def cleanup_archer_fastqs(self,project_adx):
 		"""
 		Need to delete the fastqs from the watched folder on the Archer platform
-		uses the archer project name ADX# to identify the fastq files
+		uses the archer project name ADX# to identify the fastq filesx
+		Call list_archer_fastq_for_deletion() to add the files to the log and get the path used for deleting the files
 		"""
+		# call list_archer_fastq_for_deletion() to get path
+		path_to_fastqs = self.list_archer_fastq_for_deletion(project_adx)
 		# ssh on to archer platform using ssh pass and empty the project folder
-		if config.testing:
-			cmd = "archer_pw=$(<%s); \
-				sshpass -p $archer_pw ssh s_archerupload@grpvgaa01.viapath.local rm %s*.fastq.gz; echo $?" % ( #TODO add path to config then use this here
-				config.path_to_archerdx_pw, 
-				os.path.join(config.path_to_picked_up_test_files,project_adx)) 
-		else:
-			cmd = "archer_pw=$(<%s); \
-				sshpass -p $archer_pw ssh s_archerupload@grpvgaa01.viapath.local rm %s*.fastq.gz; echo $?" % ( #TODO add path to config then use this here
-				config.path_to_archerdx_pw, 
-				os.path.join(config.path_to_picked_up_files,project_adx)) 
+		cmd = "archer_pw=$(<%s); \
+			sshpass -p $archer_pw ssh s_archerupload@grpvgaa01.viapath.local rm %s; echo $?" % ( 
+			config.path_to_archerdx_pw, 
+			path_to_fastqs) 
+	
 		self.logger("command to cleanup fastq files: %s" % (cmd), "Archer archive")
 		out,err = self.execute_subprocess_command(cmd)
 		# check for success in stdout
 		if self.success_in_stdout(out,"0"):
-			self.logger("FASTQs for archer project %s deleted from picked_up_files folder." % (project_adx),"Archer archive")
+			self.logger("FASTQs for archer project %s deleted from picked_up_files folder." % (project_adx),"Archer archive") #TODO list fastqs to be deleted to add to logfile
 			return True
 		else:
 			# TODO set up Rapid 7 alert
 			self.logger("ERROR: failed to correctly delete the FASTQ files for project %s" % (project_adx),"Archer archive")
 			return False
+
+	def list_archer_fastq_for_deletion(self,project_adx):
+		"""
+		list the fastqs that will be deleted and write them to the logfile
+		input: project_adx (ADX###)
+		output: the path to the fastqs (so the path used to list the fastqs is the same as the path to delete them)
+		"""
+		# first get the path to the fastq files location
+		if config.testing:
+			path_to_fastqs = "%s*.fastq.gz" % (os.path.join(config.path_to_picked_up_test_files,project_adx))
+		else:
+			path_to_fastqs = "%s*.fastq.gz" % (os.path.join(config.path_to_picked_up_files,project_adx))
+		# command to list fastq files to be deleted
+		cmd = "archer_pw=$(<%s); \
+			sshpass -p $archer_pw ssh s_archerupload@grpvgaa01.viapath.local ls %s; echo $?" % ( 
+			config.path_to_archerdx_pw, 
+			path_to_fastqs) 
+
+		out,err = self.execute_subprocess_command(cmd)
+		# write the list of files to the log
+		self.logger("List of fastq files to be deleted from %s for project %s:\n%s" % (path_to_fastqs,project_adx,out),"Archer archive") #TODO list fastqs to be deleted to add to logfile
+		# return the file path to be used by clean_up_archer_fastqs()
+		return path_to_fastqs
 
 	def update_list_archived_projects(self,archer_project_ID,project_adx):
 		"""
@@ -377,12 +400,14 @@ class ArcherArchive():
 		Input = command (string)
 		Takes a command, executes using subprocess.Popen
 		Returns =  (stdout,stderr) (tuple)
+		universal_newlines=True is required to force the outputs to be strings not bytes in python 3. For python 3.7 onwards can use text=True instead
 		"""
 		proc = subprocess.Popen(
 			[command],
 			stderr=subprocess.PIPE,
 			stdout=subprocess.PIPE,
 			shell=True,
+			universal_newlines=True, 
 			executable="/bin/bash",
 		)
 		# capture the streams
