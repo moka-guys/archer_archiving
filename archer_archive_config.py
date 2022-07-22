@@ -1,5 +1,5 @@
 import os
-testing = True
+testing = False
 docker = True
 # =====location of input/output files=====
 # root of folder that contains the apps, automate_demultiplexing_logfiles and

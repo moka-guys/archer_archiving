@@ -52,7 +52,7 @@ class ArcherArchive():
 			self.logger("host added to known hosts ok", "SSH set up")
 			return True
 		else:
-			self.logger("host NOT added to known hosts", "SSH set up")
+			self.logger("host NOT added to known hosts", "SSH set up") # Rapid7 alert set up
 			return False
 
 	def list_archer_projects(self):
@@ -163,7 +163,7 @@ class ArcherArchive():
 			self.logger("Fastq locations file for project %s generated." % (archer_project_ID), "Archer archive")
 			return fastq_loc_file
 		else:
-			# TODO set up Rapid 7 alert
+			# Rapid 7 alert set up
 			self.logger("ERROR: Failed to generate fastq locations file for project %s." % (archer_project_ID), "Archer archive")
 			return None
 
@@ -200,7 +200,7 @@ class ArcherArchive():
 			self.logger("folder for Archer project %s copied to genomics server." % (archer_project_ID), "Archer archive")
 			return True
 		else:
-			# TODO set up Rapid 7 alert
+			# Rapid 7 alert set up
 			self.logger("ERROR: Failed to copy Archer project folder" % (archer_project_ID), "Archer archive")	
 			return False		
 
@@ -224,7 +224,7 @@ class ArcherArchive():
 			self.logger("Tar of archer project %s generated successfully" % (archer_project_ID),"Archer archive")
 			return tarfile_name
 		else:
-			# TODO set up Rapid 7 alert
+			# Rapid 7 alert set up 
 			self.logger("ERROR: failed to generate tar of archer project %s. n\Error message: %s. \nProject will not be archived." % (archer_project_ID,out),"Archer archive")
 			return None
 
@@ -243,8 +243,8 @@ class ArcherArchive():
 		# note: if one project found len(matchingprojects)=2 because there is a newline 
 		matching_projects = out.split("\n")
 		if len(matching_projects) != 2:
-			# TODO set up Rapid 7 alert
-			self.logger("ALERT: Unable to identify a single DNAnexus project matching %s. Unable to backup Archer project %s" % (project_adx,archer_project_ID), "Archer list projects")
+			# Rapid 7 alert set up 
+			self.logger("ERROR: Unable to identify a single DNAnexus project matching %s. Unable to backup Archer project %s" % (project_adx,archer_project_ID), "Archer list projects")
 			return None,None
 		else:
 			# extract the projectid and projectname for use later
@@ -265,7 +265,7 @@ class ArcherArchive():
 			config.path_to_dx_upload_agent,
 			config.Nexus_API_Key,
 			dnanexus_projectname,
-			list_of_files) #TODO need to get it to read in the file list correctly
+			list_of_files) 
 		out,err = self.execute_subprocess_command(cmd)
 		self.logger("dnanexus upload agent command: %s\nout: %s\n%s" % (cmd,out,err),"Archer archive")
 		# check output of this command
@@ -274,7 +274,7 @@ class ArcherArchive():
 			self.logger("files %s successfully uploaded to DNAnexus project %s" % (list_of_files,dnanexus_projectname),"Archer archive")
 			return True
 		else:
-			# TODO set up Rapid 7 alert
+			# Rapid 7 alert set up
 			self.logger("ERROR: failed to upload file %s to DNAnexus project %s" % (list_of_files,dnanexus_projectname),"Archer archive")
 			return False
 
@@ -302,7 +302,7 @@ class ArcherArchive():
 			self.logger("Archer project folder %s emptied." % (archer_project_ID),"Archer archive")
 			return True
 		else:
-			# TODO set up Rapid 7 alert
+			# Rapid 7 alert set up
 			self.logger("ERROR: failed to correctly empty archer project folder %s." % (archer_project_ID),"Archer archive")
 			return False
 
@@ -324,10 +324,10 @@ class ArcherArchive():
 		out,err = self.execute_subprocess_command(cmd)
 		# check for success in stdout
 		if self.success_in_stdout(out,"0"):
-			self.logger("FASTQs for archer project %s deleted from picked_up_files folder." % (project_adx),"Archer archive") #TODO list fastqs to be deleted to add to logfile
+			self.logger("FASTQs for archer project %s deleted from picked_up_files folder." % (project_adx),"Archer archive")
 			return True
 		else:
-			# TODO set up Rapid 7 alert
+			# Rapid 7 alert set up
 			self.logger("ERROR: failed to correctly delete the FASTQ files for project %s" % (project_adx),"Archer archive")
 			return False
 
@@ -350,7 +350,7 @@ class ArcherArchive():
 
 		out,err = self.execute_subprocess_command(cmd)
 		# write the list of files to the log
-		self.logger("List of fastq files to be deleted from %s for project %s:\n%s" % (path_to_fastqs,project_adx,out),"Archer archive") #TODO list fastqs to be deleted to add to logfile
+		self.logger("List of fastq files to be deleted from %s for project %s:\n%s" % (path_to_fastqs,project_adx,out),"Archer archive")
 		# return the file path to be used by clean_up_archer_fastqs()
 		return path_to_fastqs
 
@@ -383,8 +383,8 @@ class ArcherArchive():
 			self.logger("Successfully deleted copy of project folder %s and tarfile %s.tar.gz from genomics server" % (archer_project_ID,archer_project_ID), "Archer Archive")
 			return True
 		else:
-			# TODO set Rapid7 alert:
-			self.logger("WARNING: project folder %s and tarfile %s.tar.gz not deleted from genomics server" % (archer_project_ID,archer_project_ID), "Archer Archive")
+			# Rapid7 alert set up
+			self.logger("WARNING: Archer archiving files not deleted from genomics server: project folder %s and tarfile %s.tar.gz" % (archer_project_ID,archer_project_ID), "Archer Archive")
 			return False
 
 	def success_in_stdout(self,stdout, expected_txt=False):
