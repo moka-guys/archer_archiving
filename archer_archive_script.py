@@ -259,7 +259,7 @@ class ArcherArchive():
 		# read list of files to upload into a string to include in the upload command
 		list_of_files = " ".join(file_list)
 		# generate command to upload file to DNAnexus project
-		cmd = "%s --auth-token %s --project %s %s" % (
+		cmd = "%s --auth-token %s --project %s --do-not-compress %s" % (
 			config.path_to_dx_upload_agent,
 			config.Nexus_API_Key,
 			dnanexus_projectname,
