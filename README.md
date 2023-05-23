@@ -1,4 +1,4 @@
-# archer_archiving v1.0.0
+# archer_archiving v1.1.0
 This script is for backing up data from the Archer analysis platform to DNAnexus for long term storage. The Archer analysis software runs on a virtual server with limited storage space (1TB), and new analyses fail if space runs out.
 
 Once projects have been archived within the Archer analysis platform (set to be performed automatically after a certain time period), the project folder contents on the archer platform are copied to the Genomics Server with rsync, compressed with tar and uploaded to the relevant DNAnexus project. The project folder and associated fastq files are then deleted from the Archer server, leaving the (empty) project folder in place.
@@ -13,7 +13,7 @@ Once projects have been archived within the Archer analysis platform (set to be 
 
 ## Docker
 The scripts can be run from within a docker container when docker = True in the archer_archive_config.py file. This can be run using the command 
-`sudo docker run --rm  -v /usr/local/src/mokaguys/logfiles:/mokaguys/logfiles -v /usr/local/src/mokaguys/dx_downloads:/mokaguys/dx_downloads -v /usr/local/src/mokaguys/.dnanexus_auth_token:/mokaguys/.dnanexus_auth_token -v /usr/local/src/mokaguys/.archerVM_pw:/mokaguys/.archerVM_pw  archer_archiving:latest`
+`sudo docker run --rm --log-driver syslog -v /var/log:/var/log -v /usr/local/src/mokaguys/logfiles:/mokaguys/logfiles -v /usr/local/src/mokaguys/dx_downloads:/mokaguys/dx_downloads -v /usr/local/src/mokaguys/.dnanexus_auth_token:/mokaguys/.dnanexus_auth_token -v /usr/local/src/mokaguys/.archerVM_pw:/mokaguys/.archerVM_pw archer_archiving:latest`
 (replacing the tag `latest` as required).
 
 ### using ssh within the Docker image
