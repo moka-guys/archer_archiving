@@ -46,13 +46,14 @@ class ArcherArchive():
 		cmd="mkdir -p ~/.ssh; touch ~./ssh/known_hosts;\
 			if [ -z $(ssh-keygen -F grpvgaa01.viapath.local) ]; then \
 				ssh-keyscan -H grpvgaa01.viapath.local >> ~/.ssh/known_hosts; fi; ssh-keygen -F grpvgaa01.viapath.local"
+		self.script_logfile.write("\tCommand to set up ssh known hosts: '%s'\n" % (cmd))
 		out, err = self.execute_subprocess_command(cmd)
 
 		if self.success_in_stdout(out, "Host grpvgaa01.viapath.local found"):
-			self.logger("host added to known hosts ok", "SSH set up")
+			self.logger("host added to known hosts ok", "Archer archive SSH set up")
 			return True
 		else:
-			self.logger("host NOT added to known hosts", "SSH set up") # Rapid7 alert set up
+			self.logger("host NOT added to known hosts", "Archer archive SSH set up") # Rapid7 alert set up
 			return False
 
 	def list_archer_projects(self):
@@ -71,11 +72,10 @@ class ArcherArchive():
 				sshpass -p $archer_pw ssh s_archerupload@grpvgaa01.viapath.local ls %s" % (
 					config.path_to_archerdx_pw, 
 					config.path_to_analysis_folder) 
+		self.script_logfile.write("\tCommand to list Archer projects: '%s'\n" % (cmd))
 		out,err = self.execute_subprocess_command(cmd)
-		self.logger("command run to list projects: %s" % (cmd), "Archer archive")
 		# for each item in the out (list of items in the /var/www/analysis folder) yeild the name if length=4 
 		for folder_name in out.split("\n"):
-			self.logger("checking folder %s" % (folder_name), "Archer archive")
 			if len(folder_name) == 4:
 				self.logger("identified project %s" % (folder_name), "Archer archive")
 				yield folder_name
@@ -121,6 +121,7 @@ class ArcherArchive():
 				sshpass -p $archer_pw ssh s_archerupload@grpvgaa01.viapath.local ls %s" % (
 					config.path_to_archerdx_pw, 
 					os.path.join(config.path_to_analysis_folder,archer_project_ID))
+		self.script_logfile.write("\tCommand to list project contents: '%s'\n" % (cmd))
 		out,err = self.execute_subprocess_command(cmd)
 		# look through list of contents for file "archer_project_ID.tar.gz"
 		archer_tar = archer_project_ID + ".tar.gz"
@@ -155,6 +156,7 @@ class ArcherArchive():
 					config.path_to_archerdx_pw,
 					os.path.join(config.path_to_analysis_folder,archer_project_ID),
 					fastq_loc_file)
+		self.script_logfile.write("\tCommand to list and record project files: '%s'\n" % (cmd))
 		out,err = self.execute_subprocess_command(cmd)
 		# check for errors in the stdout
 		if self.success_in_stdout(out.rstrip(), "0"):
@@ -191,9 +193,9 @@ class ArcherArchive():
 					os.path.join(config.path_to_analysis_folder,archer_project_ID),
 					config.copy_location
 					)
+		self.script_logfile.write("\tCommand to copy archer project files: '%s'\n" % (cmd))
 		# capture stdout and look for exit code
 		out,err = self.execute_subprocess_command(cmd)
-		self.logger("rsync cmd: %s\nout: %s" % (cmd,out), "Archer archive")
 		if self.success_in_stdout(out.rstrip(), "0"):
 			self.logger("folder for Archer project %s copied to genomics server." % (archer_project_ID), "Archer archive")
 			return True
@@ -215,8 +217,8 @@ class ArcherArchive():
 		# redirect stderr to stdout so we can test for errors
 		tarfile_name = "%s.tar.gz" % (archer_project_ID)
 		cmd = "cd %s; tar -czf %s %s 2>&1" % (config.copy_location,tarfile_name,archer_project_ID)
+		self.script_logfile.write("\tCommand to create  tar archive on genomics server: '%s'\n" % (cmd))
 		out, err = self.execute_subprocess_command(cmd)
-		self.logger("tar cmd: %s\nout: %s" % (cmd,out), "Archer archive")
 		# assess stdout+stderr - if successful tar does not return any output
 		if len(out) ==0:
 			self.logger("Tar of archer project %s generated successfully" % (archer_project_ID),"Archer archive")
@@ -235,8 +237,8 @@ class ArcherArchive():
 		# search DNAnexus for project matching project_adx (ADX###)
 		#cmd = config.source_command+";dx find projects --name='*%s*' --auth-token %s" % (project_adx,config.Nexus_API_Key)
 		cmd = "dx find projects --name='*%s*' --auth-token %s" % (project_adx,config.Nexus_API_Key)
+		self.script_logfile.write("\tCommand to find DNAnexus project: '%s'\n" % (cmd))
 		out,err = self.execute_subprocess_command(cmd)
-		self.logger("find_DNAnexus_project() cmd: %s" % (cmd),"Archer archive")
 		# count number of projects returned. If unable to identify a single matching project return error
 		# note: if one project found len(matchingprojects)=2 because there is a newline 
 		matching_projects = out.split("\n")
@@ -264,8 +266,8 @@ class ArcherArchive():
 			config.Nexus_API_Key,
 			dnanexus_projectname,
 			list_of_files) 
+		self.script_logfile.write("\tCommand to upload files to DNAnexus using upload agent: '%s'\n" % (cmd))
 		out,err = self.execute_subprocess_command(cmd)
-		self.logger("dnanexus upload agent command: %s\nout: %s\n%s" % (cmd,out,err),"Archer archive")
 		# check output of this command
 		if out.startswith("file-"):
 		#if self.success_in_stdout(out,"file*"):
@@ -293,9 +295,8 @@ class ArcherArchive():
 				sshpass -p $archer_pw ssh s_archerupload@grpvgaa01.viapath.local rm -r %s/*; echo $?" % (
 					config.path_to_archerdx_pw, 
 					os.path.join(config.path_to_analysis_folder,archer_project_ID)) 
-		self.logger("command to cleanup project on archer server: %s" %(cmd), "Archer archive")
+		self.script_logfile.write("\tCommand to cleanup project on archer server: '%s'\n" % (cmd))
 		out,err = self.execute_subprocess_command(cmd)
-		self.logger("clean up archer project cmd: %s\nout: %s" % (cmd,out),"Archer archive")
 		# check for success in stdout
 		if self.success_in_stdout(out,"0"):
 			self.logger("Archer project folder %s emptied." % (archer_project_ID),"Archer archive")
@@ -319,8 +320,7 @@ class ArcherArchive():
 			sshpass -p $archer_pw ssh s_archerupload@grpvgaa01.viapath.local rm %s; echo $?" % ( 
 			config.path_to_archerdx_pw, 
 			path_to_fastqs) 
-	
-		self.logger("command to cleanup fastq files: %s" % (cmd), "Archer archive")
+		self.script_logfile.write("\tCommand to cleanup archer FASTQs: '%s'\n" % (cmd))
 		out,err = self.execute_subprocess_command(cmd)
 		# check for success in stdout
 		if self.success_in_stdout(out,"0"):
@@ -347,10 +347,10 @@ class ArcherArchive():
 			sshpass -p $archer_pw ssh s_archerupload@grpvgaa01.viapath.local ls %s; echo $?" % ( 
 			config.path_to_archerdx_pw, 
 			path_to_fastqs) 
-
+		self.script_logfile.write("\tCommand to list Archer FASTQs for deletion: '%s'\n" % (cmd))
 		out,err = self.execute_subprocess_command(cmd)
 		# write the list of files to the log
-		self.logger("List of fastq files to be deleted from %s for project %s:\n%s" % (path_to_fastqs,project_adx,out),"Archer archive")
+		self.script_logfile.write("\tList of fastq files to be deleted from %s for project %s:\n%s" % (path_to_fastqs,project_adx,out))
 		# return the file path to be used by clean_up_archer_fastqs()
 		return path_to_fastqs
 
@@ -364,7 +364,7 @@ class ArcherArchive():
 		# open the archived projects file and add the project ID of the archived project to the list
 		with open(config.path_to_archived_project_ids,"a") as archived_projects_list:
 			archived_projects_list.write("%s\n" % (archer_project_ID))
-			self.logger("Project ID %s added to archived projects list" % (project_adx),"Archer archive")
+			self.script_logfile.write("\tProject ID %s added to archived projects list" % (project_adx),"Archer archive")
 
 	def cleanup_genomics_server(self,archer_project_ID):
 		"""
@@ -377,6 +377,7 @@ class ArcherArchive():
 		path_to_project_folder = os.path.join(config.copy_location,"%s" % (archer_project_ID))
 		# command to delete the downloaded fastq files
 		cmd = "rm -r %s*; echo $?" % (path_to_project_folder)
+		self.script_logfile.write("\tCommand to clean up Genomics Server: '%s'\n" % (cmd))
 		out, err = self.execute_subprocess_command(cmd)
 		if self.success_in_stdout(out, "0"):
 			self.logger("Successfully deleted project folder and tar.gz file for project %s from genomics server" % (archer_project_ID), "Archer Archive")
@@ -420,16 +421,19 @@ class ArcherArchive():
 			Details about the logged event.
 		tool (str)
 			Tool name. Used to search within the insight ops website.
+		printing is required to send log information to stdout (allows logs to be sent to syslog when run in Docker)
 		"""
 		# Create subprocess command string, passing message and tool name to the command
 		log = "/usr/bin/logger -t %s '%s'" % (tool, message)
-
+		time = str('{:%Y%m%d_%H%M%S}'.format(datetime.datetime.now()))
 		if subprocess.call([log], shell=True) == 0:
 			# If the log command produced no errors, record the log command string to the script logfile.
-			self.script_logfile.write(tool + ": " + message + "\n")
+			self.script_logfile.write(time + " : " + tool + ": " + message + "\n")
+			print("%s : %s" % (tool,message))
 		# Else record failure to write to system log to the script log file
 		else:
-			self.script_logfile.write("Failed to write log to /usr/bin/logger\n" + log + "\n")
+			self.script_logfile.write(time + " : Failed to write log to /var/log/syslog\n" + log + "\n")
+			print("Failed to write log to /var/log/syslog %s : %s" % (tool,message))
 
 	def go(self):
 		"""
